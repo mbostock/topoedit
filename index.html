@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+#help {
+  position: fixed;
+  font: 18px "Helvetica Neue";
+  top: 20%;
+  left: 50%;
+  transform: translate(-50%,0);
+  margin: 0;
+}
+
+#canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+.mesh {
+  fill: none;
+  stroke: #000;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+</style>
+<svg id="canvas"></svg>
+<div id="help">[drag a TopoJSON file here]</div>
+<script src="d3.js"></script>
+<script src="topojson.js"></script>
+<script>
+
+var width,
+    height;
+
+d3.select(document)
+    .on("dragenter", dragentered)
+    .on("dragleave", dragleaved)
+    .on("dragover", dragovered)
+    .on("drop", dropped);
+
+d3.select(window)
+    .on("resize", resized);
+
+var canvas = d3.select("#canvas"),
+    help = d3.select("#help");
+
+resized();
+
+function dragentered() {
+  canvas.style("background", "#eee").text(null);
+  help.text("[now drop]");
+}
+
+function dragleaved() {
+  canvas.style("background", null);
+  help.text("[drag a TopoJSON file here]");
+}
+
+function dragovered() {
+  d3.event.preventDefault();
+}
+
+function dropped() {
+  if (!d3.event.dataTransfer.files.length) return dragleaved();
+  canvas.style("background", "#ddd");
+  help.text("[reading file…]");
+  d3.event.preventDefault();
+  dropread(d3.event.dataTransfer.files[0]);
+}
+
+function dropread(file) {
+  var reader = new FileReader;
+  reader.onload = function() {
+    var topology;
+    try { topology = JSON.parse(reader.result); } catch (error) { return dropfailed("not a JSON file"); }
+    if (typeof topology !== "object" || topology.type !== "Topology") return dropfailed("not a TopoJSON file");
+    load(topology);
+  };
+  reader.onerror = function() {
+    dropfailed("unable to read file");
+  };
+  reader.readAsText(file);
+}
+
+function dropfailed(message) {
+  dragleaved();
+  help.text("[" + message + "; try again?]");
+}
+
+function load(topology) {
+  help
+      .style("display", "none");
+
+  canvas
+      .style("background", null)
+      .text(null);
+
+  var mesh = topojson.mesh(topology),
+      path = scaleToFit(mesh);
+
+  canvas.append("path")
+      .datum(mesh)
+      .attr("class", "mesh")
+      .attr("d", path);
+}
+
+function scaleToFit(feature) {
+  var path = d3.geo.path().projection(null),
+      bounds = path.bounds(feature),
+      x0 = bounds[0][0],
+      y0 = bounds[0][1],
+      dx = bounds[1][0] - x0,
+      dy = bounds[1][1] - y0,
+      k = Math.min(width / dx, height / dy),
+      ox = (width - k * dx) / 2,
+      oy = (height - k * dy) / 2;
+
+  return path.projection(d3.geo.transform({
+    point: function(x, y) {
+      this.stream.point((x - x0) * k + ox, (y - y0) * k + oy);
+    }
+  }));
+}
+
+function resized() {
+  var newWidth = innerWidth,
+      newHeight = innerHeight;
+
+  if (newWidth === width && newHeight === height) return;
+
+  width = newWidth;
+  height = newHeight;
+
+  canvas
+      .attr("width", width)
+      .attr("height", height);
+}
+
+</script>

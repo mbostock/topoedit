@@ -61,21 +61,8 @@ var canvas = d3.select("#canvas"),
     feature = d3.select(null),
     help = d3.select("#help");
 
-var originX,
-    originY,
-    translateX,
-    translateY,
-    scale;
-
-var path = d3.geo.path()
-    .projection(d3.geo.transform({
-      point: function(x, y) {
-        this.stream.point(
-          (x - originX) * scale + translateX,
-          (y - originY) * scale + translateY
-        );
-      }
-    }));
+var originX, // TODO remove
+    originY;
 
 var zoom = d3.behavior.zoom()
     .on("zoom", zoomed);
@@ -137,17 +124,15 @@ function load(topology) {
 
   var mesh = topojson.mesh(topology);
 
-  zoomToFit(mesh);
-
   feature = canvas.insert("path", "*")
       .datum(mesh)
-      .attr("class", "mesh")
-      .attr("d", path);
+      .attr("class", "mesh");
+
+  zoomToFit(mesh);
 }
 
 function zoomToFit(feature) {
-  var path = d3.geo.path().projection(null),
-      bounds = path.bounds(feature);
+  var bounds = d3.geo.pipeline().source(d3.geom.jsonSource).sink(d3.geom.boundsSink)(feature);
 
   originX = bounds[0][0];
   originY = bounds[0][1];
@@ -155,20 +140,31 @@ function zoomToFit(feature) {
   var dx = bounds[1][0] - originX,
       dy = bounds[1][1] - originY;
 
-  scale = Math.min(width / dx, height / dy);
-  translateX = (width - scale * dx) / 2;
-  translateY = (height - scale * dy) / 2;
+  var scale = Math.min(width / dx, height / dy),
+      translateX = (width - scale * dx) / 2,
+      translateY = (height - scale * dy) / 2;
 
   zoom
       .scale(scale)
       .translate([translateX, translateY]);
+
+  overlay
+      .call(zoom.event);
 }
 
 function zoomed() {
   scale = d3.event.scale;
   translateX = d3.event.translate[0];
   translateY = d3.event.translate[1];
-  feature.attr("d", path);
+
+  render = d3.geo.pipeline()
+      .source(d3.geom.jsonSource)
+      .pipe(d3.geom.matrix, 1, 0, 0, 1, -originX, -originY)
+      .pipe(d3.geom.matrix, scale, 0, 0, scale, translateX, translateY)
+      .pipe(d3.geom.clipExtent, 0, 0, width, height) // TODO on resize
+      .sink(d3.geom.pathSink);
+
+  feature.attr("d", render);
 }
 
 function resized() {

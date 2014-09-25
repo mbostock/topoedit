@@ -28,6 +28,7 @@ body {
   stroke: #000;
   stroke-linejoin: round;
   stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 
 #overlay {
@@ -61,9 +62,6 @@ var canvas = d3.select("#canvas"),
     feature = d3.select(null),
     help = d3.select("#help");
 
-var originX, // TODO remove
-    originY;
-
 var zoom = d3.behavior.zoom()
     .on("zoom", zoomed);
 
@@ -71,6 +69,8 @@ overlay
     .call(zoom);
 
 resized();
+
+if (location.search) d3.json(location.search.slice(1), function(error, json) { if (!error) load(json); });
 
 function dragentered() {
   canvas.style("background", "#eee");
@@ -125,8 +125,11 @@ function load(topology) {
   var mesh = topojson.mesh(topology);
 
   feature = canvas.insert("path", "*")
-      .datum(mesh)
-      .attr("class", "mesh");
+      .attr("class", "mesh")
+      .attr("d", d3.geo.pipeline()
+          .source(d3.geom.jsonSource)
+          .sink(d3.geom.pathSink)
+          (mesh));
 
   zoomToFit(mesh);
 }
@@ -134,15 +137,14 @@ function load(topology) {
 function zoomToFit(feature) {
   var bounds = d3.geo.pipeline().source(d3.geom.jsonSource).sink(d3.geom.boundsSink)(feature);
 
-  originX = bounds[0][0];
-  originY = bounds[0][1];
+  var x0 = bounds[0][0],
+      y0 = bounds[0][1],
+      dx = bounds[1][0] - x0,
+      dy = bounds[1][1] - y0;
 
-  var dx = bounds[1][0] - originX,
-      dy = bounds[1][1] - originY;
-
-  var scale = Math.min(width / dx, height / dy),
-      translateX = (width - scale * dx) / 2,
-      translateY = (height - scale * dy) / 2;
+  var scale = Math.min(width / dx, height / dy) * .95,
+      translateX = (width - scale * dx) / 2 - x0 * scale,
+      translateY = (height - scale * dy) / 2 - y0 * scale;
 
   zoom
       .scale(scale)
@@ -153,18 +155,22 @@ function zoomToFit(feature) {
 }
 
 function zoomed() {
-  scale = d3.event.scale;
-  translateX = d3.event.translate[0];
-  translateY = d3.event.translate[1];
+  feature.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
+}
 
-  render = d3.geo.pipeline()
-      .source(d3.geom.jsonSource)
-      .pipe(d3.geom.matrix, 1, 0, 0, 1, -originX, -originY)
-      .pipe(d3.geom.matrix, scale, 0, 0, scale, translateX, translateY)
-      .pipe(d3.geom.clipExtent, 0, 0, width, height) // TODO on resize
-      .sink(d3.geom.pathSink);
-
-  feature.attr("d", render);
+function simplify(sink) {
+  var x0, y0;
+  return {
+    polygonStart: function() { sink.polygonStart(); },
+    polygonEnd: function() { sink.polygonEnd(); },
+    lineStart: function() { sink.lineStart(); x0 = y0 = NaN; },
+    lineEnd: function() { sink.lineEnd(); },
+    point: function(x, y) {
+      if (isNaN(x0) || Math.abs(x - x0) >= 1 || Math.abs(y - y0) >= 1) {
+        sink.point(x0 = x, y0 = y);
+      }
+    }
+  };
 }
 
 function resized() {
@@ -179,6 +185,9 @@ function resized() {
   canvas
       .attr("width", width)
       .attr("height", height);
+
+  overlay
+      .call(zoom.event);
 }
 
 </script>

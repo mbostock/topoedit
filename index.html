@@ -2,6 +2,12 @@
 <meta charset="utf-8">
 <style>
 
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
 #help {
   position: fixed;
   font: 18px "Helvetica Neue";
@@ -24,8 +30,15 @@
   stroke-linecap: round;
 }
 
+#overlay {
+  fill: none;
+  pointer-events: all;
+}
+
 </style>
-<svg id="canvas"></svg>
+<svg id="canvas">
+  <rect id="overlay" width="100%" height="100%"></rect>
+</svg>
 <div id="help">[drag a TopoJSON file here]</div>
 <script src="d3.js"></script>
 <script src="topojson.js"></script>
@@ -44,12 +57,38 @@ d3.select(window)
     .on("resize", resized);
 
 var canvas = d3.select("#canvas"),
+    overlay = d3.select("#overlay"),
+    feature = d3.select(null),
     help = d3.select("#help");
+
+var originX,
+    originY,
+    translateX,
+    translateY,
+    scale;
+
+var path = d3.geo.path()
+    .projection(d3.geo.transform({
+      point: function(x, y) {
+        this.stream.point(
+          (x - originX) * scale + translateX,
+          (y - originY) * scale + translateY
+        );
+      }
+    }));
+
+var zoom = d3.behavior.zoom()
+    .on("zoom", zoomed);
+
+overlay
+    .call(zoom);
 
 resized();
 
 function dragentered() {
-  canvas.style("background", "#eee").text(null);
+  canvas.style("background", "#eee");
+  feature.remove();
+  feature = d3.select(null);
   help.text("[now drop]");
 }
 
@@ -94,34 +133,42 @@ function load(topology) {
       .style("display", "none");
 
   canvas
-      .style("background", null)
-      .text(null);
+      .style("background", null);
 
-  var mesh = topojson.mesh(topology),
-      path = scaleToFit(mesh);
+  var mesh = topojson.mesh(topology);
 
-  canvas.append("path")
+  zoomToFit(mesh);
+
+  feature = canvas.insert("path", "*")
       .datum(mesh)
       .attr("class", "mesh")
       .attr("d", path);
 }
 
-function scaleToFit(feature) {
+function zoomToFit(feature) {
   var path = d3.geo.path().projection(null),
-      bounds = path.bounds(feature),
-      x0 = bounds[0][0],
-      y0 = bounds[0][1],
-      dx = bounds[1][0] - x0,
-      dy = bounds[1][1] - y0,
-      k = Math.min(width / dx, height / dy),
-      ox = (width - k * dx) / 2,
-      oy = (height - k * dy) / 2;
+      bounds = path.bounds(feature);
 
-  return path.projection(d3.geo.transform({
-    point: function(x, y) {
-      this.stream.point((x - x0) * k + ox, (y - y0) * k + oy);
-    }
-  }));
+  originX = bounds[0][0];
+  originY = bounds[0][1];
+
+  var dx = bounds[1][0] - originX,
+      dy = bounds[1][1] - originY;
+
+  scale = Math.min(width / dx, height / dy);
+  translateX = (width - scale * dx) / 2;
+  translateY = (height - scale * dy) / 2;
+
+  zoom
+      .scale(scale)
+      .translate([translateX, translateY]);
+}
+
+function zoomed() {
+  scale = d3.event.scale;
+  translateX = d3.event.translate[0];
+  translateY = d3.event.translate[1];
+  feature.attr("d", path);
 }
 
 function resized() {

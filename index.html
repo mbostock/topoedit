@@ -25,14 +25,15 @@ body {
 
 .mesh path {
   fill: none;
-  stroke: #000;
+  stroke-width: 3px;
   vector-effect: non-scaling-stroke;
 }
 
-/*.mesh path:hover {
-  stroke: red;
-  stroke-width: 3px;
-}*/
+.mesh path:hover {
+  stroke-opacity: .6;
+  stroke: #000 !important;
+  stroke-width: 6px;
+}
 
 #underlay {
   fill: none;
@@ -59,6 +60,10 @@ d3.select(document)
 
 d3.select(window)
     .on("resize", resized);
+
+var render = d3.geo.pipeline()
+    .source(d3.geom.jsonSource)
+    .sink(d3.geom.pathSink);
 
 var zoom = d3.behavior.zoom()
     .on("zoom", zoomed);
@@ -119,6 +124,7 @@ function load(topology) {
       .style("display", "none");
 
   canvas
+      .on("click", clickedCanvas)
       .style("background", null);
 
   var mesh = topojson.mesh(topology),
@@ -127,33 +133,126 @@ function load(topology) {
   arc = canvas.append("g", "*")
       .attr("class", "mesh");
 
-  // arc.append("path")
-  //     .attr("d", d3.geo.pipeline()
-  //         .source(d3.geom.jsonSource)
-  //         .sink(d3.geom.pathSink)
-  //         (mesh));
-
   var color = d3.scale.category10();
 
   arc.selectAll("path")
-      .data(topology.arcs.map(function(arc) {
+      .data(topology.arcs.map(function(arc, i) {
         return {
           type: "LineString",
           coordinates: arc.map(transform)
         };
       }))
     .enter().append("path")
-      .style("stroke-width", "1.5px")
+      .each(function(d) { d.node = this; })
       .style("stroke", function(d, i) { return color(i); })
-      .attr("d", d3.geo.pipeline()
-          .source(d3.geom.jsonSource)
-          .sink(d3.geom.pathSink));
+      .on("mouseover", mouseoveredArc)
+      .on("mouseout", mouseoutedArc)
+      .on("click", clickedArc)
+      .attr("d", render);
 
   zoomToFit(mesh);
+
+  var sourceArc;
+
+  function mouseoveredArc() {
+    this._nextSibling = this.nextSibling;
+    this.parentNode.appendChild(this);
+  }
+
+  function mouseoutedArc() {
+    this.parentNode.insertBefore(this, this._nextSibling);
+    delete this._nextSibling;
+  }
+
+  function clickedCanvas() {
+    sourceArc = null;
+  }
+
+  function clickedArc(d, i) {
+    if (sourceArc && sourceArc !== d) {
+      replaceArc(sourceArc, d);
+      sourceArc = null;
+    } else {
+      sourceArc = d;
+    }
+    d3.event.stopPropagation();
+  }
+
+  function replaceArc(sourceArc, targetArc) {
+    var targetClosed = equalPoint(targetArc.coordinates[0], targetArc.coordinates[targetArc.coordinates.length - 1]),
+        targetStartIndex = findClosestIndex(targetArc.coordinates, sourceArc.coordinates[0]),
+        targetEndIndex = findClosestIndex(targetArc.coordinates, sourceArc.coordinates[sourceArc.coordinates.length - 1]);
+
+    // TODO move end points on arcs that share the same endpoints with the sourceArc
+    // TODO split target arc into three (or two) new arcs, and replace corresponding references
+    // TODO replace references to source arc with new arc (possibly in reverse orientation)
+
+    if (targetStartIndex > targetEndIndex) {
+      var t = targetStartIndex;
+      targetStartIndex = targetEndIndex;
+      targetEndIndex = t;
+    }
+
+    if (targetClosed) {
+      var candidateCoordinates1 = targetArc.coordinates.slice(targetEndIndex).concat(targetArc.coordinates.slice(0, targetStartIndex + 1)),
+          candidateCoordinates2 = targetArc.coordinates.slice(targetStartIndex, targetEndIndex + 1);
+      sourceArc.coordinates = averageSquaredDistance(sourceArc.coordinates, candidateCoordinates1) < averageSquaredDistance(sourceArc.coordinates, candidateCoordinates2) ? candidateCoordinates1 : candidateCoordinates2;
+    } else {
+      sourceArc.coordinates = targetArc.coordinates.slice(targetStartIndex, targetEndIndex + 1);
+    }
+
+    sourceArc.node.parentNode.insertBefore(sourceArc.node, sourceArc.node.parentNode.firstChild);
+    d3.select(sourceArc.node).attr("d", render).style("stroke-width", "6px");
+  }
 }
 
 function identity(d) {
   return d;
+}
+
+function averageSquaredDistance(sourceCoordinates, targetCoordinates) {
+  sourceCoordinates = d3.shuffle(sourceCoordinates.slice()).slice(0, 10); // pick ten random coordinates
+  return d3.mean(targetCoordinates, function(point) {
+    var minDistance2 = Infinity;
+
+    for (var i = 0, n = sourceCoordinates.length; i < n; ++i) {
+      var dx = sourceCoordinates[i][0] - point[0],
+          dy = sourceCoordinates[i][1] - point[1],
+          d2 = dx * dx + dy * dy;
+      if (d2 < minDistance2) {
+        minDistance2 = d2;
+      }
+    }
+
+    return minDistance2;
+  });
+}
+
+function equalPoint(a, b) {
+  return squaredDistancePoint(a, b) < 1e-6;
+}
+
+function squaredDistancePoint(a, b) {
+  var dx = a[0] - b[0],
+      dy = a[1] - b[1];
+  return dx * dx + dy * dy;
+}
+
+function findClosestIndex(coordinates, point) {
+  var minDistance2 = Infinity,
+      minIndex;
+
+  for (var i = 0, n = coordinates.length; i < n; ++i) {
+    var dx = coordinates[i][0] - point[0],
+        dy = coordinates[i][1] - point[1],
+        d2 = dx * dx + dy * dy;
+    if (d2 < minDistance2) {
+      minDistance2 = d2;
+      minIndex = i;
+    }
+  }
+
+  return minIndex;
 }
 
 function transformAbsolute(transform) {

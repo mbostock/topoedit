@@ -25,14 +25,14 @@ body {
 
 .mesh path {
   fill: none;
-  stroke-width: 3px;
+  stroke-width: 5px;
   vector-effect: non-scaling-stroke;
 }
 
 .mesh path:hover {
   stroke-opacity: .6;
   stroke: #000 !important;
-  stroke-width: 6px;
+  stroke-width: 7px;
 }
 
 #underlay {
@@ -128,7 +128,10 @@ function load(topology) {
       .style("background", null);
 
   var mesh = topojson.mesh(topology),
-      transform = transformAbsolute(topology.transform);
+      absolute = transformAbsolute(topology.transform),
+      arcs = topology.arcs.map(function(coordinates) { return {type: "LineString", coordinates: absolute(coordinates)}; }),
+      arcsByStart = d3.nest().key(function(d) { return d.coordinates[0]; }).map(arcs, d3.map),
+      arcsByEnd = d3.nest().key(function(d) { return d.coordinates[d.coordinates.length - 1]; }).map(arcs, d3.map);
 
   arc = canvas.append("g", "*")
       .attr("class", "mesh");
@@ -136,12 +139,7 @@ function load(topology) {
   var color = d3.scale.category10();
 
   arc.selectAll("path")
-      .data(topology.arcs.map(function(arc, i) {
-        return {
-          type: "LineString",
-          coordinates: arc.map(transform)
-        };
-      }))
+      .data(arcs)
     .enter().append("path")
       .each(function(d) { d.node = this; })
       .style("stroke", function(d, i) { return color(i); })
@@ -179,13 +177,18 @@ function load(topology) {
   }
 
   function replaceArc(sourceArc, targetArc) {
-    var targetClosed = equalPoint(targetArc.coordinates[0], targetArc.coordinates[targetArc.coordinates.length - 1]),
-        targetStartIndex = findClosestIndex(targetArc.coordinates, sourceArc.coordinates[0]),
-        targetEndIndex = findClosestIndex(targetArc.coordinates, sourceArc.coordinates[sourceArc.coordinates.length - 1]);
+    var sourceCoordinates = sourceArc.coordinates,
+        targetCoordinates = targetArc.coordinates,
+        targetClosed = equalPoint(targetCoordinates[0], targetCoordinates[targetCoordinates.length - 1]),
+        targetStartIndex = findClosestIndex(targetCoordinates, sourceCoordinates[0]),
+        targetEndIndex = findClosestIndex(targetCoordinates, sourceCoordinates[sourceCoordinates.length - 1]),
+        sourceStart = sourceCoordinates[0],
+        sourceEnd = sourceCoordinates[sourceCoordinates.length - 1],
+        replacementCoordinates;
 
-    // TODO move end points on arcs that share the same endpoints with the sourceArc
     // TODO split target arc into three (or two) new arcs, and replace corresponding references
     // TODO replace references to source arc with new arc (possibly in reverse orientation)
+    // TODO delete unwanted polygons
 
     if (targetStartIndex > targetEndIndex) {
       var t = targetStartIndex;
@@ -194,15 +197,38 @@ function load(topology) {
     }
 
     if (targetClosed) {
-      var candidateCoordinates1 = targetArc.coordinates.slice(targetEndIndex).concat(targetArc.coordinates.slice(0, targetStartIndex + 1)),
-          candidateCoordinates2 = targetArc.coordinates.slice(targetStartIndex, targetEndIndex + 1);
-      sourceArc.coordinates = averageSquaredDistance(sourceArc.coordinates, candidateCoordinates1) < averageSquaredDistance(sourceArc.coordinates, candidateCoordinates2) ? candidateCoordinates1 : candidateCoordinates2;
+      var candidateCoordinates1 = targetCoordinates.slice(targetEndIndex).concat(targetCoordinates.slice(0, targetStartIndex + 1)),
+          candidateCoordinates2 = targetCoordinates.slice(targetStartIndex, targetEndIndex + 1);
+      replacementCoordinates = averageSquaredDistance(sourceCoordinates, candidateCoordinates1) < averageSquaredDistance(sourceCoordinates, candidateCoordinates2) ? candidateCoordinates1 : candidateCoordinates2;
     } else {
-      sourceArc.coordinates = targetArc.coordinates.slice(targetStartIndex, targetEndIndex + 1);
+      replacementCoordinates = targetCoordinates.slice(targetStartIndex, targetEndIndex + 1);
     }
 
+    if (squaredDistancePoint(replacementCoordinates[0], sourceCoordinates[0]) > squaredDistancePoint(replacementCoordinates[1], sourceCoordinates[0])) replacementCoordinates.reverse();
+
+    if (arcsByStart.has(sourceStart)) arcsByStart.get(sourceStart).forEach(function(arc) {
+      arc.coordinates[0] = replacementCoordinates[0];
+      d3.select(arc.node).attr("d", render);
+    });
+
+    if (arcsByStart.has(sourceEnd)) arcsByStart.get(sourceEnd).forEach(function(arc) {
+      arc.coordinates[0] = replacementCoordinates[replacementCoordinates.length - 1];
+      d3.select(arc.node).attr("d", render);
+    });
+
+    if (arcsByEnd.has(sourceStart)) arcsByEnd.get(sourceStart).forEach(function(arc) {
+      arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[0];
+      d3.select(arc.node).attr("d", render);
+    });
+
+    if (arcsByEnd.has(sourceEnd)) arcsByEnd.get(sourceEnd).forEach(function(arc) {
+      arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[replacementCoordinates.length - 1];
+      d3.select(arc.node).attr("d", render);
+    });
+
+    sourceArc.coordinates = replacementCoordinates;
     sourceArc.node.parentNode.insertBefore(sourceArc.node, sourceArc.node.parentNode.firstChild);
-    d3.select(sourceArc.node).attr("d", render).style("stroke-width", "6px");
+    d3.select(sourceArc.node).attr("d", render).style("stroke-width", "10px");
   }
 }
 
@@ -210,14 +236,14 @@ function identity(d) {
   return d;
 }
 
-function averageSquaredDistance(sourceCoordinates, targetCoordinates) {
-  sourceCoordinates = d3.shuffle(sourceCoordinates.slice()).slice(0, 10); // pick ten random coordinates
-  return d3.mean(targetCoordinates, function(point) {
+function averageSquaredDistance(sourceArc, targetArc) {
+  sourceArc = d3.shuffle(sourceArc.slice()).slice(0, 10); // pick ten random coordinates
+  return d3.mean(targetArc, function(point) {
     var minDistance2 = Infinity;
 
-    for (var i = 0, n = sourceCoordinates.length; i < n; ++i) {
-      var dx = sourceCoordinates[i][0] - point[0],
-          dy = sourceCoordinates[i][1] - point[1],
+    for (var i = 0, n = sourceArc.length; i < n; ++i) {
+      var dx = sourceArc[i][0] - point[0],
+          dy = sourceArc[i][1] - point[1],
           d2 = dx * dx + dy * dy;
       if (d2 < minDistance2) {
         minDistance2 = d2;
@@ -238,13 +264,13 @@ function squaredDistancePoint(a, b) {
   return dx * dx + dy * dy;
 }
 
-function findClosestIndex(coordinates, point) {
+function findClosestIndex(arc, point) {
   var minDistance2 = Infinity,
       minIndex;
 
-  for (var i = 0, n = coordinates.length; i < n; ++i) {
-    var dx = coordinates[i][0] - point[0],
-        dy = coordinates[i][1] - point[1],
+  for (var i = 0, n = arc.length; i < n; ++i) {
+    var dx = arc[i][0] - point[0],
+        dy = arc[i][1] - point[1],
         d2 = dx * dx + dy * dy;
     if (d2 < minDistance2) {
       minDistance2 = d2;

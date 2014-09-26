@@ -171,6 +171,54 @@ function load(topology) {
     d3.event.stopPropagation();
   }
 
+  // TODO delete unwanted polygons (don’t delete arcs directly)
+
+  function replaceArcReferences(sourceIndex, targetIndexes) {
+    var targetSize = targetIndexes.length;
+
+    function visitGeometry(geometry) {
+      if (geometry && visitGeometryType.hasOwnProperty(geometry.type)) {
+        visitGeometryType[geometry.type](geometry);
+      }
+    }
+
+    function replaceMultiLine(multiLine) {
+      multiLine.forEach(replaceLine);
+    }
+
+    function replaceLine(line) {
+      var replacedLine = [];
+      line.forEach(function(i) {
+        if (i === sourceIndex) for (var j = 0; j < targetSize; ++j) replacedLine.push(targetIndexes[j]);
+        else if (i === ~sourceIndex) for (var j = targetSize - 1; j >= 0; --j) replacedLine.push(~targetIndexes[j]);
+        else replacedLine.push(i);
+      });
+      return replacedLine;
+    }
+
+    var visitGeometryType = {
+      LineString: function(object) {
+        object.arcs = replaceLine(object.arcs);
+      },
+      MultiLineString: function(object) {
+        object.arcs = object.arcs.map(replaceLine);
+      },
+      Polygon: function(object) {
+        object.arcs = object.arcs.map(replaceLine);
+      },
+      MultiPolygon: function(object) {
+        object.arcs = object.arcs.map(replaceMultiLine);
+      },
+      GeometryCollection: function(object) {
+        object.geometries.forEach(visitGeometry);
+      }
+    };
+
+    for (var key in topology.objects) {
+      visitGeometry(topology.objects[key]);
+    }
+  }
+
   function replaceArc(sourceArc, targetArc) {
     var sourceCoordinates = sourceArc.coordinates,
         targetCoordinates = targetArc.coordinates,
@@ -180,10 +228,6 @@ function load(topology) {
         sourceStart = sourceCoordinates[0],
         sourceEnd = sourceCoordinates[sourceCoordinates.length - 1],
         replacementArcs = [];
-
-    // TODO split target arc into three (or two) new arcs, and replace corresponding references
-    // TODO replace references to source arc with new arc (possibly in reverse orientation)
-    // TODO delete unwanted polygons
 
     if (targetStartIndex > targetEndIndex) {
       var t = targetStartIndex;
@@ -215,11 +259,16 @@ function load(topology) {
       ];
     }
 
-    var replacementCoordinates = replacementArcs[1].coordinates;
+    var replacementCoordinates = replacementArcs[1].coordinates,
+        replacementStart = replacementCoordinates[0],
+        replacementEnd = replacementCoordinates[replacementCoordinates.length - 1],
+        replacementReversed;
 
-    // TODO This test indicates whether replaced references to the source arc should be reversed.
-    if (squaredDistancePoint(replacementCoordinates[0], sourceCoordinates[0]) > squaredDistancePoint(replacementCoordinates[1], sourceCoordinates[0])) {
-      replacementCoordinates.reverse();
+    // This test indicates whether replaced references to the source arc should be reversed.
+    if (replacementReversed = squaredDistancePoint(replacementStart, sourceStart) > squaredDistancePoint(replacementEnd, sourceStart)) {
+      var t = replacementStart;
+      replacementStart = replacementEnd;
+      replacementEnd = t;
     }
 
     d3.select(sourceArc.node)
@@ -235,19 +284,19 @@ function load(topology) {
 
     arcs.forEach(function(arc) {
       if (equalPoint(arc.coordinates[0], sourceStart)) {
-        arc.coordinates[0] = replacementCoordinates[0];
+        arc.coordinates[0] = replacementStart;
         d3.select(arc.node).attr("d", render);
       }
       if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceStart)) {
-        arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[0];
+        arc.coordinates[arc.coordinates.length - 1] = replacementStart;
         d3.select(arc.node).attr("d", render);
       }
       if (equalPoint(arc.coordinates[0], sourceEnd)) {
-        arc.coordinates[0] = replacementCoordinates[replacementCoordinates.length - 1];
+        arc.coordinates[0] = replacementEnd;
         d3.select(arc.node).attr("d", render);
       }
       if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceEnd)) {
-        arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[replacementCoordinates.length - 1];
+        arc.coordinates[arc.coordinates.length - 1] = replacementEnd;
         d3.select(arc.node).attr("d", render);
       }
     });
@@ -255,6 +304,10 @@ function load(topology) {
     replacementArcs.forEach(function(arc) {
       arc.index = arcs.push(arc) - 1;
     });
+
+    // TODO what if the start or end target arc segment is empty?
+    replaceArcReferences(sourceArc.index, [replacementReversed ? ~replacementArcs[1].index : replacementArcs[1].index]);
+    replaceArcReferences(targetArc.index, [replacementArcs[0].index, replacementArcs[1].index, replacementArcs[2].index]);
 
     arc.selectAll(".replacement-arc")
         .data(replacementArcs)

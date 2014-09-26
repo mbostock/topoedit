@@ -37,10 +37,18 @@ body {
   pointer-events: all;
 }
 
+#download {
+  position: fixed;
+  display: none;
+  top: 10px;
+  left: 10px;
+}
+
 </style>
 <svg id="canvas">
   <rect id="underlay" width="100%" height="100%"></rect>
 </svg>
+<a id="download" href="#" download="topology.json"><button>Download</button></a>
 <div id="help">[drag a TopoJSON file here]</div>
 <script src="d3.js"></script>
 <script src="topojson.js"></script>
@@ -68,6 +76,7 @@ var zoom = d3.behavior.zoom()
     .on("zoom", zoomed);
 
 var canvas = d3.select("#canvas").call(zoom),
+    download = d3.select("#download"),
     arc = d3.select(null),
     help = d3.select("#help");
 
@@ -126,9 +135,18 @@ function load(topology) {
       .on("click", clickedCanvas)
       .style("background", null);
 
+  download
+      .style("display", "inline")
+      .on("mouseover", function() { this.href = URL.createObjectURL(new Blob([JSON.stringify(prune(topology))], {type: "application/json"})); })
+      .on("mouseout", function() { setTimeout(function() { URL.revokeObjectURL(this.href); }, 10); });
+
   var mesh = topojson.mesh(topology),
       absolute = transformAbsolute(topology.transform),
       arcs = topology.arcs.map(function(coordinates, i) { return {type: "LineString", index: i, coordinates: absolute(coordinates)}; });
+
+  delete topology.transform; // TODO support quantization when saving
+
+  arc.remove();
 
   arc = canvas.append("g", "*")
       .attr("class", "mesh");
@@ -173,12 +191,64 @@ function load(topology) {
 
   // TODO delete unwanted polygons (don’t delete arcs directly)
 
+  function prune(topology) {
+    var objects = topology.objects,
+        oldArcs = topology.arcs,
+        newArcs = topology.arcs = [],
+        newArcCount = 0,
+        newIndexByOldIndex = new Array(oldArcs.length);
+
+    function pruneGeometry(geometry) {
+      if (geometry && pruneGeometryType.hasOwnProperty(geometry.type)) pruneGeometryType[geometry.type](geometry);
+    }
+
+    var pruneGeometryType = {
+      GeometryCollection: function(o) { o.geometries.forEach(pruneGeometry); },
+      LineString: function(o) { pruneArcs(o.arcs); },
+      MultiLineString: function(o) { o.arcs.forEach(pruneArcs); },
+      Polygon: function(o) { o.arcs.forEach(pruneArcs); },
+      MultiPolygon: function(o) { o.arcs.forEach(pruneMultiArcs); }
+    };
+
+    function pruneArcs(arcs) {
+      for (var i = 0, n = arcs.length; i < n; ++i) {
+        var oldIndex = arcs[i],
+            oldReverse = oldIndex < 0 && (oldIndex = ~oldIndex, true),
+            newIndex;
+
+        // If this is the first instance of this arc,
+        // record it under its new index.
+        if ((newIndex = newIndexByOldIndex[oldIndex]) == null) {
+          if (oldArcs[oldIndex] == null) throw new Error("unknown arc: " + oldIndex);
+          newIndexByOldIndex[oldIndex] = newIndex = newArcCount++;
+          newArcs[newIndex] = oldArcs[oldIndex];
+        }
+
+        arcs[i] = oldReverse ? ~newIndex : newIndex;
+      }
+    }
+
+    function pruneMultiArcs(arcs) {
+      arcs.forEach(pruneArcs);
+    }
+
+    for (var key in objects) {
+      pruneGeometry(objects[key]);
+    }
+
+    return topology;
+  }
+
   function replaceArcReferences(sourceIndex, targetIndexes) {
     var targetSize = targetIndexes.length;
+
+    console.log("replaceArcReferences", sourceIndex, targetIndexes.join(","));
 
     function visitGeometry(geometry) {
       if (geometry && visitGeometryType.hasOwnProperty(geometry.type)) {
         visitGeometryType[geometry.type](geometry);
+      } else {
+        throw new Error("unknown geometry type: " + geometry.type);
       }
     }
 
@@ -193,25 +263,16 @@ function load(topology) {
         else if (i === ~sourceIndex) for (var j = targetSize - 1; j >= 0; --j) replacedLine.push(~targetIndexes[j]);
         else replacedLine.push(i);
       });
+      if (line.join(" ") !== replacedLine.join(" ")) console.warn(line.join(" ") + " -> " + replacedLine.join(" "));
       return replacedLine;
     }
 
     var visitGeometryType = {
-      LineString: function(object) {
-        object.arcs = replaceLine(object.arcs);
-      },
-      MultiLineString: function(object) {
-        object.arcs = object.arcs.map(replaceLine);
-      },
-      Polygon: function(object) {
-        object.arcs = object.arcs.map(replaceLine);
-      },
-      MultiPolygon: function(object) {
-        object.arcs = object.arcs.map(replaceMultiLine);
-      },
-      GeometryCollection: function(object) {
-        object.geometries.forEach(visitGeometry);
-      }
+      GeometryCollection: function(object) { object.geometries.forEach(visitGeometry); },
+      LineString: function(object) { object.arcs = replaceLine(object.arcs); },
+      MultiLineString: function(object) { object.arcs = object.arcs.map(replaceLine); },
+      Polygon: function(object) { object.arcs = object.arcs.map(replaceLine); },
+      MultiPolygon: function(object) { object.arcs = object.arcs.map(replaceMultiLine); }
     };
 
     for (var key in topology.objects) {
@@ -239,12 +300,13 @@ function load(topology) {
       var candidateCoordinates1 = targetCoordinates.slice(targetEndIndex).concat(targetCoordinates.slice(0, targetStartIndex + 1)),
           candidateCoordinates2 = targetCoordinates.slice(targetStartIndex, targetEndIndex + 1);
       if (averageSquaredDistance(sourceCoordinates, candidateCoordinates1) < averageSquaredDistance(sourceCoordinates, candidateCoordinates2)) {
+        console.log("closed reversed replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
         replacementArcs = [
-          {type: "LineString", coordinates: targetCoordinates.slice(0, targetEndIndex + 1)},
-          {type: "LineString", coordinates: candidateCoordinates1},
-          {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex)}
+          {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex, targetEndIndex + 1)},
+          {type: "LineString", coordinates: candidateCoordinates1}
         ];
       } else {
+        console.log("closed replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
         replacementArcs = [
           {type: "LineString", coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
           {type: "LineString", coordinates: candidateCoordinates2},
@@ -252,6 +314,7 @@ function load(topology) {
         ];
       }
     } else {
+      console.log("open replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
       replacementArcs = [
         {type: "LineString", coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
         {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex, targetEndIndex + 1)},
@@ -264,7 +327,6 @@ function load(topology) {
         replacementEnd = replacementCoordinates[replacementCoordinates.length - 1],
         replacementReversed;
 
-    // This test indicates whether replaced references to the source arc should be reversed.
     if (replacementReversed = squaredDistancePoint(replacementStart, sourceStart) > squaredDistancePoint(replacementEnd, sourceStart)) {
       var t = replacementStart;
       replacementStart = replacementEnd;
@@ -303,13 +365,20 @@ function load(topology) {
 
     replacementArcs.forEach(function(arc) {
       arc.index = arcs.push(arc) - 1;
+      topology.arcs[arc.index] = arc.coordinates;
     });
 
-    // TODO what if the start or end target arc segment is empty?
-    replaceArcReferences(sourceArc.index, [replacementReversed ? ~replacementArcs[1].index : replacementArcs[1].index]);
-    replaceArcReferences(targetArc.index, [replacementArcs[0].index, replacementArcs[1].index, replacementArcs[2].index]);
+    console.log("deleted source arc " + sourceArc.index, sourceArc.coordinates.length);
+    console.log("deleted target arc " + targetArc.index, targetArc.coordinates.length);
+    console.log("created replacement arc 0 " + replacementArcs[0].index, replacementArcs[0].coordinates.length);
+    console.log("created replacement arc 1 " + replacementArcs[1].index, replacementArcs[1].coordinates.length);
+    if (replacementArcs[2]) console.log("created replacement arc 2 " + replacementArcs[2].index, replacementArcs[2].coordinates.length);
 
-    arc.selectAll(".replacement-arc")
+    replaceArcReferences(sourceArc.index, [replacementReversed ? ~replacementArcs[1].index : replacementArcs[1].index]);
+    replacementArcs = replacementArcs.filter(function(arc) { return arc.coordinates.length > 1; });
+    replaceArcReferences(targetArc.index, replacementArcs.map(function(arc) { return arc.index; }));
+
+    arc.selectAll(".replacement-path")
         .data(replacementArcs)
       .enter().append("path")
         .each(function(d) { d.node = this; })

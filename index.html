@@ -25,14 +25,11 @@ body {
 
 .mesh path {
   fill: none;
-  stroke-width: 5px;
-  vector-effect: non-scaling-stroke;
 }
 
 .mesh path:hover {
   stroke-opacity: .6;
   stroke: #000 !important;
-  stroke-width: 7px;
 }
 
 #underlay {
@@ -129,9 +126,7 @@ function load(topology) {
 
   var mesh = topojson.mesh(topology),
       absolute = transformAbsolute(topology.transform),
-      arcs = topology.arcs.map(function(coordinates) { return {type: "LineString", coordinates: absolute(coordinates)}; }),
-      arcsByStart = d3.nest().key(function(d) { return d.coordinates[0]; }).map(arcs, d3.map),
-      arcsByEnd = d3.nest().key(function(d) { return d.coordinates[d.coordinates.length - 1]; }).map(arcs, d3.map);
+      arcs = topology.arcs.map(function(coordinates, i) { return {type: "LineString", index: i, coordinates: absolute(coordinates)}; });
 
   arc = canvas.append("g", "*")
       .attr("class", "mesh");
@@ -142,7 +137,7 @@ function load(topology) {
       .data(arcs)
     .enter().append("path")
       .each(function(d) { d.node = this; })
-      .style("stroke", function(d, i) { return color(i); })
+      .style("stroke", function(d) { return color(d.index); })
       .on("mouseover", mouseoveredArc)
       .on("mouseout", mouseoutedArc)
       .on("click", clickedArc)
@@ -184,7 +179,7 @@ function load(topology) {
         targetEndIndex = findClosestIndex(targetCoordinates, sourceCoordinates[sourceCoordinates.length - 1]),
         sourceStart = sourceCoordinates[0],
         sourceEnd = sourceCoordinates[sourceCoordinates.length - 1],
-        replacementCoordinates;
+        replacementArcs = [];
 
     // TODO split target arc into three (or two) new arcs, and replace corresponding references
     // TODO replace references to source arc with new arc (possibly in reverse orientation)
@@ -199,36 +194,73 @@ function load(topology) {
     if (targetClosed) {
       var candidateCoordinates1 = targetCoordinates.slice(targetEndIndex).concat(targetCoordinates.slice(0, targetStartIndex + 1)),
           candidateCoordinates2 = targetCoordinates.slice(targetStartIndex, targetEndIndex + 1);
-      replacementCoordinates = averageSquaredDistance(sourceCoordinates, candidateCoordinates1) < averageSquaredDistance(sourceCoordinates, candidateCoordinates2) ? candidateCoordinates1 : candidateCoordinates2;
+      if (averageSquaredDistance(sourceCoordinates, candidateCoordinates1) < averageSquaredDistance(sourceCoordinates, candidateCoordinates2)) {
+        replacementArcs = [
+          {type: "LineString", coordinates: targetCoordinates.slice(0, targetEndIndex + 1)},
+          {type: "LineString", coordinates: candidateCoordinates1},
+          {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex)}
+        ];
+      } else {
+        replacementArcs = [
+          {type: "LineString", coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
+          {type: "LineString", coordinates: candidateCoordinates2},
+          {type: "LineString", coordinates: targetCoordinates.slice(targetEndIndex)}
+        ];
+      }
     } else {
-      replacementCoordinates = targetCoordinates.slice(targetStartIndex, targetEndIndex + 1);
+      replacementArcs = [
+        {type: "LineString", coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
+        {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex, targetEndIndex + 1)},
+        {type: "LineString", coordinates: targetCoordinates.slice(targetEndIndex)}
+      ];
     }
 
-    if (squaredDistancePoint(replacementCoordinates[0], sourceCoordinates[0]) > squaredDistancePoint(replacementCoordinates[1], sourceCoordinates[0])) replacementCoordinates.reverse();
+    var replacementCoordinates = replacementArcs[1].coordinates;
 
-    if (arcsByStart.has(sourceStart)) arcsByStart.get(sourceStart).forEach(function(arc) {
-      arc.coordinates[0] = replacementCoordinates[0];
-      d3.select(arc.node).attr("d", render);
+    // TODO This test indicates whether replaced references to the source arc should be reversed.
+    if (squaredDistancePoint(replacementCoordinates[0], sourceCoordinates[0]) > squaredDistancePoint(replacementCoordinates[1], sourceCoordinates[0])) {
+      replacementCoordinates.reverse();
+    }
+
+    d3.select(sourceArc.node)
+        .on("mouseout", null)
+        .remove();
+
+    d3.select(targetArc.node)
+        .on("mouseout", null)
+        .remove();
+
+    delete arcs[sourceArc.index];
+    delete arcs[targetArc.index];
+
+    arcs.forEach(function(arc) {
+      if (equalPoint(arc.coordinates[0], sourceStart)) {
+        arc.coordinates[0] = replacementCoordinates[0];
+        d3.select(arc.node).attr("d", render);
+      }
+      if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceStart)) {
+        arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[0];
+        d3.select(arc.node).attr("d", render);
+      }
+      if (equalPoint(arc.coordinates[0], sourceEnd)) {
+        arc.coordinates[0] = replacementCoordinates[replacementCoordinates.length - 1];
+        d3.select(arc.node).attr("d", render);
+      }
+      if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceEnd)) {
+        arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[replacementCoordinates.length - 1];
+        d3.select(arc.node).attr("d", render);
+      }
     });
 
-    if (arcsByStart.has(sourceEnd)) arcsByStart.get(sourceEnd).forEach(function(arc) {
-      arc.coordinates[0] = replacementCoordinates[replacementCoordinates.length - 1];
-      d3.select(arc.node).attr("d", render);
-    });
-
-    if (arcsByEnd.has(sourceStart)) arcsByEnd.get(sourceStart).forEach(function(arc) {
-      arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[0];
-      d3.select(arc.node).attr("d", render);
-    });
-
-    if (arcsByEnd.has(sourceEnd)) arcsByEnd.get(sourceEnd).forEach(function(arc) {
-      arc.coordinates[arc.coordinates.length - 1] = replacementCoordinates[replacementCoordinates.length - 1];
-      d3.select(arc.node).attr("d", render);
-    });
-
-    sourceArc.coordinates = replacementCoordinates;
-    sourceArc.node.parentNode.insertBefore(sourceArc.node, sourceArc.node.parentNode.firstChild);
-    d3.select(sourceArc.node).attr("d", render).style("stroke-width", "10px");
+    arc.selectAll(".replacement-arc")
+        .data(replacementArcs)
+      .enter().append("path")
+        .each(function(d) { d.node = this; })
+        .style("stroke", function(d) { return color(d.index = arcs.push(d) - 1); })
+        .on("mouseover", mouseoveredArc)
+        .on("mouseout", mouseoutedArc)
+        .on("click", clickedArc)
+        .attr("d", render);
   }
 }
 
@@ -322,7 +354,9 @@ function zoomToFit(feature) {
 }
 
 function zoomed() {
-  arc.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
+  arc
+      .attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")")
+      .style("stroke-width", 5 / d3.event.scale + "px");
 }
 
 function simplify(sink) {

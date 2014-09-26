@@ -127,23 +127,27 @@ function load(topology) {
   arc = canvas.append("g", "*")
       .attr("class", "mesh");
 
-  arc.append("path")
-      .attr("d", d3.geo.pipeline()
-          .source(d3.geom.jsonSource)
-          .sink(d3.geom.pathSink)
-          (mesh));
-
-  // arc.selectAll("path")
-  //     .data(topology.arcs.map(function(arc) {
-  //       return {
-  //         type: "LineString",
-  //         coordinates: arc.map(transform)
-  //       };
-  //     }))
-  //   .enter().append("path")
+  // arc.append("path")
   //     .attr("d", d3.geo.pipeline()
   //         .source(d3.geom.jsonSource)
-  //         .sink(d3.geom.pathSink));
+  //         .sink(d3.geom.pathSink)
+  //         (mesh));
+
+  var color = d3.scale.category10();
+
+  arc.selectAll("path")
+      .data(topology.arcs.map(function(arc) {
+        return {
+          type: "LineString",
+          coordinates: arc.map(transform)
+        };
+      }))
+    .enter().append("path")
+      .style("stroke-width", "1.5px")
+      .style("stroke", function(d, i) { return color(i); })
+      .attr("d", d3.geo.pipeline()
+          .source(d3.geom.jsonSource)
+          .sink(d3.geom.pathSink));
 
   zoomToFit(mesh);
 }

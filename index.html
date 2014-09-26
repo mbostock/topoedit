@@ -137,6 +137,7 @@ function load(topology) {
       .style("background", null);
 
   download
+      .attr("download", (d3.values(topology.objects)[0].id || "topology") + ".json")
       .style("display", "inline")
       .on("mouseover", function() { this.href = URL.createObjectURL(new Blob([JSON.stringify(prune(topology))], {type: "application/json"})); })
       .on("mouseout", function() { setTimeout(function() { URL.revokeObjectURL(this.href); }, 10); });

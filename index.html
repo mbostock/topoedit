@@ -66,7 +66,8 @@ d3.select(document)
 d3.select(window)
     .on("resize", resized);
 
-var color = d3.scale.category20();
+var color = d3.scale.category20c(),
+    replacementColor = d3.scale.ordinal().domain(["true", "undefined"]).range(["red", "black"]);
 
 var render = d3.geo.pipeline()
     .source(d3.geom.jsonSource)
@@ -184,7 +185,9 @@ function load(topology) {
       replaceArc(sourceArc, d);
       sourceArc = null;
     } else {
+      if (sourceArc) d3.select(sourceArc.node).style("stroke-opacity", null);
       sourceArc = d;
+      d3.select(sourceArc.node).style("stroke-opacity", 1);
     }
     d3.event.stopPropagation();
   }
@@ -302,23 +305,23 @@ function load(topology) {
       if (averageSquaredDistance(sourceCoordinates, candidateCoordinates1) < averageSquaredDistance(sourceCoordinates, candidateCoordinates2)) {
         console.log("closed reversed replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
         replacementArcs = [
-          {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex, targetEndIndex + 1)},
+          {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(targetStartIndex, targetEndIndex + 1)},
           {type: "LineString", coordinates: candidateCoordinates1}
         ];
       } else {
         console.log("closed replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
         replacementArcs = [
-          {type: "LineString", coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
+          {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
           {type: "LineString", coordinates: candidateCoordinates2},
-          {type: "LineString", coordinates: targetCoordinates.slice(targetEndIndex)}
+          {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(targetEndIndex)}
         ];
       }
     } else {
       console.log("open replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
       replacementArcs = [
-        {type: "LineString", coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
+        {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
         {type: "LineString", coordinates: targetCoordinates.slice(targetStartIndex, targetEndIndex + 1)},
-        {type: "LineString", coordinates: targetCoordinates.slice(targetEndIndex)}
+        {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(targetEndIndex)}
       ];
     }
 
@@ -382,7 +385,7 @@ function load(topology) {
         .data(replacementArcs)
       .enter().append("path")
         .each(function(d) { d.node = this; })
-        .style("stroke", function(d) { return color(d.index); })
+        .style("stroke", function(d) { return replacementColor(d.replaced); })
         .on("mouseover", mouseoveredArc)
         .on("mouseout", mouseoutedArc)
         .on("click", clickedArc)

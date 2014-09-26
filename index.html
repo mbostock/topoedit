@@ -58,6 +58,8 @@ d3.select(document)
 d3.select(window)
     .on("resize", resized);
 
+var color = d3.scale.category20();
+
 var render = d3.geo.pipeline()
     .source(d3.geom.jsonSource)
     .sink(d3.geom.pathSink);
@@ -130,8 +132,6 @@ function load(topology) {
 
   arc = canvas.append("g", "*")
       .attr("class", "mesh");
-
-  var color = d3.scale.category10();
 
   arc.selectAll("path")
       .data(arcs)
@@ -252,11 +252,15 @@ function load(topology) {
       }
     });
 
+    replacementArcs.forEach(function(arc) {
+      arc.index = arcs.push(arc) - 1;
+    });
+
     arc.selectAll(".replacement-arc")
         .data(replacementArcs)
       .enter().append("path")
         .each(function(d) { d.node = this; })
-        .style("stroke", function(d) { return color(d.index = arcs.push(d) - 1); })
+        .style("stroke", function(d) { return color(d.index); })
         .on("mouseover", mouseoveredArc)
         .on("mouseout", mouseoutedArc)
         .on("click", clickedArc)

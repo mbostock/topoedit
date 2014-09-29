@@ -182,7 +182,9 @@ function load(topology) {
   }
 
   function clickedArc(d, i) {
-    if (sourceArc && sourceArc !== d) {
+    if (d3.event.altKey) {
+      this.parentNode.insertBefore(this, this._nextSibling = this.parentNode.firstChild);
+    } else if (sourceArc && sourceArc !== d) {
       replaceArc(sourceArc, d);
       sourceArc = null;
     } else {
@@ -340,6 +342,10 @@ function load(topology) {
         {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(targetEndIndex)}
       ];
     }
+
+    console.log("source arc length", sourceCoordinates.length);
+    console.log("target arc length", targetCoordinates.length);
+    console.log("replacement arcs total length", d3.sum(replacementArcs, function(arc) { return arc.coordinates.length; }));
 
     var replacementCoordinates = replacementArcs[1].coordinates,
         replacementStart = replacementCoordinates[0],

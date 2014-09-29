@@ -405,7 +405,7 @@ function load(topology) {
 
     arc.selectAll(".replacement-path")
         .data(replacementArcs)
-      .enter().append("path")
+      .enter().insert("path", "*")
         .each(function(d) { d.node = this; })
         .style("stroke", function(d) { return replacementColor(d.replaced); })
         .on("mouseover", mouseoveredArc)

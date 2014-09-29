@@ -28,8 +28,13 @@ body {
 }
 
 .mesh path:hover {
-  stroke-opacity: .6;
-  stroke: #000 !important;
+  stroke: #e6550d !important;
+  -webkit-animation: pulse 500ms linear 0s infinite alternate;
+}
+
+@-webkit-keyframes pulse {
+  from { stroke-opacity: .5; }
+  to { stroke-opacity: 1; }
 }
 
 #underlay {
@@ -66,8 +71,8 @@ d3.select(document)
 d3.select(window)
     .on("resize", resized);
 
-var color = d3.scale.category20c(),
-    replacementColor = d3.scale.ordinal().domain(["true", "undefined"]).range(["red", "black"]);
+var color = d3.scale.ordinal().range(["#3182bd", "#6baed6", "#9ecae1", "#c6dbef"]),
+    replacementColor = d3.scale.ordinal().domain(["true", "undefined"]).range(["#31a354", "#74c476"]);
 
 var render = d3.geo.pipeline()
     .source(d3.geom.jsonSource)
@@ -173,8 +178,10 @@ function load(topology) {
   }
 
   function mouseoutedArc() {
-    this.parentNode.insertBefore(this, this._nextSibling);
-    delete this._nextSibling;
+    if (this._nextSibling) {
+      if (this._nextSibling.parentNode) this.parentNode.insertBefore(this, this._nextSibling);
+      delete this._nextSibling;
+    }
   }
 
   function clickedCanvas() {
@@ -182,15 +189,18 @@ function load(topology) {
   }
 
   function clickedArc(d, i) {
-    if (d3.event.altKey) {
-      this.parentNode.insertBefore(this, this._nextSibling = this.parentNode.firstChild);
-    } else if (sourceArc && sourceArc !== d) {
-      replaceArc(sourceArc, d);
-      sourceArc = null;
-    } else {
-      if (sourceArc) d3.select(sourceArc.node).style("stroke-opacity", null);
-      sourceArc = d;
-      d3.select(sourceArc.node).style("stroke-opacity", 1);
+    this.parentNode.insertBefore(this, this._nextSibling = this.parentNode.firstChild);
+    if (!d3.event.altKey) {
+      if (sourceArc && sourceArc !== d) {
+        replaceArc(sourceArc, d);
+        sourceArc = null;
+      } else if (sourceArc) {
+        d3.select(sourceArc.node).style("stroke-opacity", null);
+        sourceArc = null;
+      } else {
+        sourceArc = d;
+        d3.select(sourceArc.node).style("stroke-opacity", 1);
+      }
     }
     d3.event.stopPropagation();
   }
@@ -305,6 +315,7 @@ function load(topology) {
           .remove();
 
       delete arcs[sourceArc.index];
+      delete topology.arcs[sourceArc.index];
 
       replaceArcReferences(sourceArc.index, []);
 
@@ -369,23 +380,14 @@ function load(topology) {
     delete arcs[sourceArc.index];
     delete arcs[targetArc.index];
 
+    delete topology.arcs[sourceArc.index];
+    delete topology.arcs[sourceArc.index];
+
     arcs.forEach(function(arc) {
-      if (equalPoint(arc.coordinates[0], sourceStart)) {
-        arc.coordinates[0] = replacementStart;
-        d3.select(arc.node).attr("d", render);
-      }
-      if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceStart)) {
-        arc.coordinates[arc.coordinates.length - 1] = replacementStart;
-        d3.select(arc.node).attr("d", render);
-      }
-      if (equalPoint(arc.coordinates[0], sourceEnd)) {
-        arc.coordinates[0] = replacementEnd;
-        d3.select(arc.node).attr("d", render);
-      }
-      if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceEnd)) {
-        arc.coordinates[arc.coordinates.length - 1] = replacementEnd;
-        d3.select(arc.node).attr("d", render);
-      }
+      if (equalPoint(arc.coordinates[0], sourceStart)) arc.coordinates[0] = replacementStart;
+      if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceStart)) arc.coordinates[arc.coordinates.length - 1] = replacementStart;
+      if (equalPoint(arc.coordinates[0], sourceEnd)) arc.coordinates[0] = replacementEnd;
+      if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceEnd)) arc.coordinates[arc.coordinates.length - 1] = replacementEnd;
     });
 
     replacementArcs.forEach(function(arc) {
@@ -410,7 +412,9 @@ function load(topology) {
         .style("stroke", function(d) { return replacementColor(d.replaced); })
         .on("mouseover", mouseoveredArc)
         .on("mouseout", mouseoutedArc)
-        .on("click", clickedArc)
+        .on("click", clickedArc);
+
+    arc.selectAll("path")
         .attr("d", render);
   }
 }

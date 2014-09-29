@@ -326,6 +326,7 @@ function load(topology) {
           delete object.arcs;
         } else {
           object.arcs = [exteriorRing].concat(object.arcs.slice(1).map(replaceLine).filter(hasLength));
+          if (object.arcs.some(function(ring) { return ring.some(function(arcIndex) { return arcIndex == null; }); })) throw new Error;
         }
       },
       MultiPolygon: function(object) {
@@ -335,6 +336,7 @@ function load(topology) {
             polygonArcs = null;
           } else {
             polygonArcs = [exteriorRing].concat(polygonArcs.slice(1).map(replaceLine).filter(hasLength));
+            if (polygonArcs.some(function(ring) { return ring.some(function(arcIndex) { return arcIndex == null; }); })) throw new Error;
           }
           return polygonArcs;
         }).filter(hasLength);
@@ -401,8 +403,8 @@ function load(topology) {
         targetEnd = targetCoordinates[targetEndIndex],
         replacementArcs = [];
 
-    if (sourceClosed) {
-      console.log("deleting closed source arc", sourceArc.index);
+    if (targetStartIndex === targetEndIndex) {
+      console.log("empty target; deleting source arc", sourceArc.index);
 
       d3.select(sourceArc.node)
           .on("mouseout", null)

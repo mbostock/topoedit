@@ -347,13 +347,15 @@ function load(topology) {
 
   function replaceArc(sourceArc, targetArc) {
     var sourceCoordinates = sourceArc.coordinates,
-        targetCoordinates = targetArc.coordinates,
-        targetClosed = equalPoint(targetCoordinates[0], targetCoordinates[targetCoordinates.length - 1]),
-        targetStartIndex = findClosestIndex(targetCoordinates, sourceCoordinates[0]),
-        targetEndIndex = findClosestIndex(targetCoordinates, sourceCoordinates[sourceCoordinates.length - 1]),
         sourceStart = sourceCoordinates[0],
         sourceEnd = sourceCoordinates[sourceCoordinates.length - 1],
         sourceClosed = equalPoint(sourceStart, sourceEnd),
+        targetCoordinates = targetArc.coordinates,
+        targetClosed = equalPoint(targetCoordinates[0], targetCoordinates[targetCoordinates.length - 1]),
+        targetStartIndex = findClosestIndex(targetCoordinates, sourceStart),
+        targetEndIndex = findClosestIndex(targetCoordinates, sourceEnd),
+        targetStart = targetCoordinates[targetStartIndex],
+        targetEnd = targetCoordinates[targetEndIndex],
         replacementArcs = [];
 
     if (sourceClosed) {
@@ -370,6 +372,14 @@ function load(topology) {
 
       return;
     }
+
+    // TODO if the target arc is a subset of the source arc,
+    // we need to split the source arc,
+    // and only replace the part of the source arc subsumed by the target.
+
+    // console.log("target arc", targetStartIndex, targetEndIndex);
+    // console.log("source start moved from " + sourceStart + " to " + targetStart, squaredDistancePoint(targetStart, sourceStart));
+    // console.log("source end moved from " + sourceEnd + " to " + targetEnd, squaredDistancePoint(targetEnd, sourceEnd));
 
     if (targetStartIndex > targetEndIndex) {
       var t = targetStartIndex;

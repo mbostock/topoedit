@@ -29,6 +29,11 @@ body {
 
 .mesh path:hover {
   stroke: #e6550d !important;
+}
+
+.mesh .arc--source {
+  stroke: #756bb1 !important;
+  pointer-events: none;
   -webkit-animation: pulse 500ms linear 0s infinite alternate;
 }
 
@@ -185,7 +190,10 @@ function load(topology) {
   }
 
   function clickedCanvas() {
-    sourceArc = null;
+    if (sourceArc) {
+      d3.select(sourceArc.node).classed("arc--source", false);
+      sourceArc = null;
+    }
   }
 
   function clickedArc(d, i) {
@@ -195,11 +203,11 @@ function load(topology) {
         replaceArc(sourceArc, d);
         sourceArc = null;
       } else if (sourceArc) {
-        d3.select(sourceArc.node).style("stroke-opacity", null);
+        d3.select(sourceArc.node).classed("arc--source", false);
         sourceArc = null;
       } else {
         sourceArc = d;
-        d3.select(sourceArc.node).style("stroke-opacity", 1);
+        d3.select(sourceArc.node).classed("arc--source", true);
       }
     }
     d3.event.stopPropagation();
@@ -208,6 +216,8 @@ function load(topology) {
   // TODO delete unwanted polygons (don’t delete arcs directly)
 
   function prune(topology) {
+    topology = JSON.parse(JSON.stringify(topology)); // blech
+
     var objects = topology.objects,
         oldArcs = topology.arcs,
         newArcs = topology.arcs = [],
@@ -354,11 +364,8 @@ function load(topology) {
       ];
     }
 
-    console.log("source arc length", sourceCoordinates.length);
-    console.log("target arc length", targetCoordinates.length);
-    console.log("replacement arcs total length", d3.sum(replacementArcs, function(arc) { return arc.coordinates.length; }));
-
-    var replacementCoordinates = replacementArcs[1].coordinates,
+    var replacementArc = replacementArcs[1],
+        replacementCoordinates = replacementArc.coordinates,
         replacementStart = replacementCoordinates[0],
         replacementEnd = replacementCoordinates[replacementCoordinates.length - 1],
         replacementReversed;
@@ -381,7 +388,7 @@ function load(topology) {
     delete arcs[targetArc.index];
 
     delete topology.arcs[sourceArc.index];
-    delete topology.arcs[sourceArc.index];
+    delete topology.arcs[targetArc.index];
 
     arcs.forEach(function(arc) {
       if (equalPoint(arc.coordinates[0], sourceStart)) arc.coordinates[0] = replacementStart;
@@ -390,19 +397,22 @@ function load(topology) {
       if (equalPoint(arc.coordinates[arc.coordinates.length - 1], sourceEnd)) arc.coordinates[arc.coordinates.length - 1] = replacementEnd;
     });
 
+    // don’t populate empty replacement arcs
+    replacementArcs = replacementArcs.filter(function(arc) {
+      return arc.coordinates.length > 1;
+    });
+
     replacementArcs.forEach(function(arc) {
-      arc.index = arcs.push(arc) - 1;
+      arc.index = arcs.length;
+      arcs[arc.index] = arc;
       topology.arcs[arc.index] = arc.coordinates;
     });
 
     console.log("deleted source arc " + sourceArc.index, sourceArc.coordinates.length);
     console.log("deleted target arc " + targetArc.index, targetArc.coordinates.length);
-    console.log("created replacement arc 0 " + replacementArcs[0].index, replacementArcs[0].coordinates.length);
-    console.log("created replacement arc 1 " + replacementArcs[1].index, replacementArcs[1].coordinates.length);
-    if (replacementArcs[2]) console.log("created replacement arc 2 " + replacementArcs[2].index, replacementArcs[2].coordinates.length);
+    console.log("created replacement arcs " + replacementArcs.map(function(arc) { return arc.index; }).join(","), d3.sum(replacementArcs, function(d) { return d.coordinates.length; }));
 
-    replaceArcReferences(sourceArc.index, [replacementReversed ? ~replacementArcs[1].index : replacementArcs[1].index]);
-    replacementArcs = replacementArcs.filter(function(arc) { return arc.coordinates.length > 1; });
+    replaceArcReferences(sourceArc.index, [replacementReversed ? ~replacementArc.index : replacementArc.index]);
     replaceArcReferences(targetArc.index, replacementArcs.map(function(arc) { return arc.index; }));
 
     arc.selectAll(".replacement-path")
@@ -416,6 +426,9 @@ function load(topology) {
 
     arc.selectAll("path")
         .attr("d", render);
+
+    if (topology.arcs.length !== arcs.length) throw new Error;
+    if (d3.sum(topology.arcs, function(arc) { return arc != null; }) !== arc.selectAll("path").size()) throw new Error;
   }
 }
 

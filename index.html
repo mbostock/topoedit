@@ -199,7 +199,9 @@ function load(topology) {
   function clickedArc(d, i) {
     this.parentNode.insertBefore(this, this._nextSibling = this.parentNode.firstChild);
     if (!d3.event.altKey) {
-      if (sourceArc && sourceArc !== d) {
+      if (d3.event.metaKey) {
+        splitArc(d, d3.mouse(this));
+      } else if (sourceArc && sourceArc !== d) {
         replaceArc(sourceArc, d);
         sourceArc = null;
       } else if (sourceArc) {
@@ -343,6 +345,47 @@ function load(topology) {
     for (var key in topology.objects) {
       visitGeometry(topology.objects[key]);
     }
+  }
+
+  function splitArc(sourceArc, point) {
+    var sourceCoordinates = sourceArc.coordinates,
+        splitIndex = findClosestIndex(sourceCoordinates, point);
+
+    if (splitIndex === 0 || splitIndex === sourceCoordinates.length - 1) return;
+
+    var replacementArcs = [
+      {type: "LineString", coordinates: sourceCoordinates.slice(0, splitIndex + 1)},
+      {type: "LineString", coordinates: sourceCoordinates.slice(splitIndex)}
+    ];
+
+    d3.select(sourceArc.node)
+        .on("mouseout", null)
+        .remove();
+
+    delete arcs[sourceArc.index];
+
+    delete topology.arcs[sourceArc.index];
+
+    replacementArcs.forEach(function(arc) {
+      arc.index = arcs.length;
+      arcs[arc.index] = arc;
+      topology.arcs[arc.index] = arc.coordinates;
+    });
+
+    console.log("deleted source arc " + sourceArc.index, sourceArc.coordinates.length);
+    console.log("created replacement arcs " + replacementArcs.map(function(arc) { return arc.index; }).join(","), d3.sum(replacementArcs, function(d) { return d.coordinates.length; }));
+
+    replaceArcReferences(sourceArc.index, replacementArcs.map(function(arc) { return arc.index; }));
+
+    arc.selectAll(".replacement-path")
+        .data(replacementArcs)
+      .enter().insert("path", "*")
+        .each(function(d) { d.node = this; })
+        .style("stroke", function(d) { return color(d.index); })
+        .attr("d", render)
+        .on("mouseover", mouseoveredArc)
+        .on("mouseout", mouseoutedArc)
+        .on("click", clickedArc);
   }
 
   function replaceArc(sourceArc, targetArc) {

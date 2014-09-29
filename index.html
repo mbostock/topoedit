@@ -292,7 +292,22 @@ function load(topology) {
         targetEndIndex = findClosestIndex(targetCoordinates, sourceCoordinates[sourceCoordinates.length - 1]),
         sourceStart = sourceCoordinates[0],
         sourceEnd = sourceCoordinates[sourceCoordinates.length - 1],
+        sourceClosed = equalPoint(sourceStart, sourceEnd),
         replacementArcs = [];
+
+    if (sourceClosed) {
+      console.log("deleting closed source arc", sourceArc.index);
+
+      d3.select(sourceArc.node)
+          .on("mouseout", null)
+          .remove();
+
+      delete arcs[sourceArc.index];
+
+      replaceArcReferences(sourceArc.index, []);
+
+      return;
+    }
 
     if (targetStartIndex > targetEndIndex) {
       var t = targetStartIndex;

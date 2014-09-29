@@ -273,7 +273,7 @@ function load(topology) {
     function visitGeometry(geometry) {
       if (geometry && visitGeometryType.hasOwnProperty(geometry.type)) {
         visitGeometryType[geometry.type](geometry);
-      } else {
+      } else if (geometry.type != null) {
         throw new Error("unknown geometry type: " + geometry.type);
       }
     }
@@ -293,12 +293,51 @@ function load(topology) {
       return replacedLine;
     }
 
+    function maybeNull(object) {
+      if (!object.arcs.length) {
+        object.type = null;
+        delete object.arcs;
+      }
+      return null;
+    }
+
+    function hasLength(arc) {
+      return !!arc.length;
+    }
+
     var visitGeometryType = {
-      GeometryCollection: function(object) { object.geometries.forEach(visitGeometry); },
-      LineString: function(object) { object.arcs = replaceLine(object.arcs); },
-      MultiLineString: function(object) { object.arcs = object.arcs.map(replaceLine); },
-      Polygon: function(object) { object.arcs = object.arcs.map(replaceLine); },
-      MultiPolygon: function(object) { object.arcs = object.arcs.map(replaceMultiLine); }
+      GeometryCollection: function(object) {
+        object.geometries.forEach(visitGeometry);
+      },
+      LineString: function(object) {
+        object.arcs = replaceLine(object.arcs);
+        return maybeNull(object);
+      },
+      MultiLineString: function(object) {
+        object.arcs = object.arcs.map(replaceLine).filter(hasLength);
+        return maybeNull(object);
+      },
+      Polygon: function(object) {
+        var exteriorRing = replaceLine(object.arcs[0]);
+        if (!exteriorRing.length) {
+          object.type = null;
+          delete object.arcs;
+        } else {
+          object.arcs = [exteriorRing].concat(object.arcs.slice(1).map(replaceLine).filter(hasLength));
+        }
+      },
+      MultiPolygon: function(object) {
+        object.arcs = object.arcs.map(function(polygonArcs) {
+          var exteriorRing = replaceLine(polygonArcs[0]);
+          if (!exteriorRing.length) {
+            polygonArcs = null;
+          } else {
+            polygonArcs = [exteriorRing].concat(polygonArcs.slice(1).map(replaceLine).filter(hasLength));
+          }
+          return polygonArcs;
+        }).filter(hasLength);
+        return maybeNull(object);
+      }
     };
 
     for (var key in topology.objects) {

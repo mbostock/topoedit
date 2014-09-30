@@ -349,6 +349,9 @@ function load(topology) {
     }
   }
 
+  // TODO split arc by inserting a point along the segment closest to the mouse
+  // (not just at the closest point)
+
   function splitArc(sourceArc, point) {
     var sourceCoordinates = sourceArc.coordinates,
         splitIndex = findClosestIndex(sourceCoordinates, point);

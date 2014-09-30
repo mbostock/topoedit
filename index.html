@@ -397,7 +397,6 @@ function load(topology) {
     var sourceCoordinates = sourceArc.coordinates,
         sourceStart = sourceCoordinates[0],
         sourceEnd = sourceCoordinates[sourceCoordinates.length - 1],
-        sourceClosed = equalPoint(sourceStart, sourceEnd),
         targetCoordinates = targetArc.coordinates,
         targetClosed = equalPoint(targetCoordinates[0], targetCoordinates[targetCoordinates.length - 1]),
         targetStartIndex = findClosestIndex(targetCoordinates, sourceStart),
@@ -447,9 +446,8 @@ function load(topology) {
       } else {
         console.log("closed replacement", targetStartIndex, targetEndIndex, targetCoordinates.length);
         replacementArcs = [
-          {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(0, targetStartIndex + 1)},
-          {type: "LineString", coordinates: candidateCoordinates2},
-          {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(targetEndIndex)}
+          {type: "LineString", replaced: true, coordinates: targetCoordinates.slice(targetEndIndex).concat(targetCoordinates.slice(1, targetStartIndex + 1))},
+          {type: "LineString", coordinates: candidateCoordinates2}
         ];
       }
     } else {
